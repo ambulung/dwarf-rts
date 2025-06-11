@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Dwarf Fortress</title>
+    <style>
+        :root { --tile-size: 40px; }
+        html { font-size: 16px; }
+        body {
+            font-family: 'Courier New', Courier, monospace; background-color: #1a1a1a; color: #e0e0e0;
+            display: flex; align-items: center; justify-content: flex-start;
+            min-height: 100vh; margin: 0; padding: 20px 0;
+        }
+        #game-wrapper {
+            display: flex; gap: 20px; align-items: flex-start; justify-content: center;
+            width: 100%; padding: 0 10px; box-sizing: border-box;
+        }
+        #game-container {
+            border: 2px solid #555; padding: 20px; background-color: #2a2a2a;
+            border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            text-align: center; flex-shrink: 0;
+        }
+        .panel { padding: 15px; background-color: #333; border-radius: 5px; margin-bottom: 20px; }
+        #stats-panel {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px;
+            font-size: 1.1rem; text-align: left;
+        }
+        #control-panel .button-group {
+            display: grid; grid-template-columns: 1fr; gap: 10px;
+        }
+        button {
+            background-color: #ffd700; color: #1a1a1a; border: 2px solid #a38a00;
+            padding: 10px 15px; font-family: 'Courier New', Courier, monospace;
+            font-size: 1em; font-weight: bold; border-radius: 5px; cursor: pointer; transition: all 0.2s;
+        }
+        button:hover:not(:disabled) { background-color: #ffec80; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        button:disabled { background-color: #555; color: #888; border-color: #444; cursor: not-allowed; }
+        button.speed-btn { background-color: #3498db; border-color: #2980b9; color: white; }
+        #game-area {
+            position: relative; background-color: #8B4513; border: 2px solid #444; border-radius: 5px;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+            transition: width 0.2s, height 0.2s;
+        }
+        .grid-tile {
+            position: absolute; width: var(--tile-size); height: var(--tile-size);
+            font-size: calc(var(--tile-size) * 0.7);
+            display: flex; align-items: center; justify-content: center;
+            transition: transform 0.2s linear; user-select: none;
+        }
+        .emoji { transition: transform 0.1s ease-out; }
+        .attacking .emoji { animation: attack-shake 0.2s ease-in-out; }
+        @keyframes attack-shake {
+            0% { transform: scale(1) translateX(0); }
+            50% { transform: scale(1.2) translateX(3px) rotate(5deg); }
+            100% { transform: scale(1) translateX(0); }
+        }
+        .health-bar-container {
+            position: absolute; top: -8px; left: 5%; width: 90%; height: 5px;
+            background-color: #555; border: 1px solid black; border-radius: 2px;
+        }
+        .health-bar {
+            height: 100%; background-color: #2ecc71; /* Green */
+            border-radius: 2px; transition: width 0.2s linear;
+        }
+        .health-bar.low { background-color: #e67e22; /* Orange */ }
+        .health-bar.critical { background-color: #e74c3c; /* Red */ }
+        
+        #log-panel {
+            width: 300px; height: 500px; background-color: #111; border: 2px solid #444;
+            border-radius: 5px; padding: 10px; overflow-y: auto; display: flex; flex-direction: column-reverse; flex-shrink: 1;
+        }
+        #log-panel p { margin: 2px 0; font-size: 0.9em; word-break: break-word; }
+        .log-gold { color: #ffd700; } .log-stone { color: #95a5a6; }
+        .log-system { color: #3498db; } .log-combat-win { color: #2ecc71; }
+        .log-combat-lose { color: #e74c3c; } .log-warn { color: #e67e22; }
+
+        @media (min-width: 601px) { #control-panel .button-group { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 1024px) {
+            body { justify-content: flex-start; align-items: stretch; }
+            #game-wrapper { flex-direction: column; align-items: center; }
+            #game-container, #log-panel { width: 100%; max-width: 620px; box-sizing: border-box; }
+            #log-panel { height: 200px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-wrapper">
+        <div id="game-container">
+            <h1>Advanced Dwarf Fortress</h1>
+            <div id="stats-panel" class="panel">
+                <div class="stat">💰 Gold: <span id="gold-count">0</span></div>
+                <div class="stat">🧑 Pop: <span id="pop-count">0</span> / <span id="pop-cap">0</span></div>
+                <div class="stat">🪨 Stone: <span id="stone-count">0</span></div>
+                <div class="stat">🏠 Houses: <span id="house-count">0</span></div>
+            </div>
+            <div id="control-panel" class="panel">
+                <div class="button-group">
+                    <button id="spawn-miner-btn">Miner (<span id="miner-cost">10</span>💰)</button>
+                    <button id="spawn-mason-btn">Mason (<span id="mason-cost">12</span>💰)</button>
+                    <button id="spawn-warrior-btn">Warrior (<span id="warrior-cost">15</span>💰)</button>
+                    <button id="buy-house-btn">House (<span id="house-cost">25</span>🪨)</button>
+                </div>
+                 <button id="speed-btn" class="speed-btn" style="margin-top:10px;">Speed: Normal (1x)</button>
+            </div>
+            <div id="game-area"></div>
+        </div>
+        <div id="log-panel" class="panel"></div>
+    </div>
+
+    <script>
+    // --- SETUP ---
+    const gameArea = document.getElementById('game-area');
+    const logPanel = document.getElementById('log-panel');
+    const goldDisplay = document.getElementById('gold-count'), stoneDisplay = document.getElementById('stone-count');
+    const popDisplay = document.getElementById('pop-count'), popCapDisplay = document.getElementById('pop-cap');
+    const houseDisplay = document.getElementById('house-count');
+    const minerCostDisplay = document.getElementById('miner-cost'), masonCostDisplay = document.getElementById('mason-cost');
+    const warriorCostDisplay = document.getElementById('warrior-cost'), houseCostDisplay = document.getElementById('house-cost');
+    const spawnMinerBtn = document.getElementById('spawn-miner-btn'), spawnMasonBtn = document.getElementById('spawn-mason-btn');
+    const spawnWarriorBtn = document.getElementById('spawn-warrior-btn'), buyHouseBtn = document.getElementById('buy-house-btn');
+    const speedBtn = document.getElementById('speed-btn');
+
+    // --- GAME CONSTANTS & STATE ---
+    const GRID_SIZE = 14;
+    const NORMAL_TICK_MS = 250, FAST_TICK_MS = 80;
+    let TILE_SIZE = 40, fortressEl, gameLoopInterval;
+
+    let gameState = {
+        gold: 20, stone: 0, dwarfs: [], resources: [], monsters: [],
+        fortress: { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) },
+        houses: 1, popCap: 5,
+        costs: { MINER: 10, MASON: 12, WARRIOR: 15, HOUSE: 25 },
+        nextId: 0, isFastForward: false, gameHasStarted: false,
+    };
+    
+    const ENTITY_CONFIG = {
+        MINER:   { hp: 20, damage: 1, emoji: '🧑‍⛏️' },
+        MASON:   { hp: 25, damage: 1, emoji: '🧑‍🧱' },
+        WARRIOR: { hp: 50, damage: 5, emoji: '⚔️' },
+        GOBLIN:  { hp: 30, damage: 3, emoji: '👹', goldDrop: 5 },
+    };
+    
+    function areAdjacent(e1, e2) {
+        if (!e1 || !e2) return false;
+        const dx = Math.abs(e1.x - e2.x);
+        const dy = Math.abs(e1.y - e2.y);
+        return (dx <= 1 && dy <= 1) && (dx + dy > 0);
+    }
+
+    class Entity {
+        constructor(id, x, y, type) {
+            this.id = id; this.x = x; this.y = y; this.type = type;
+            const config = ENTITY_CONFIG[this.type];
+            this.hp = config.hp; this.maxHp = config.hp; this.damage = config.damage;
+            this.state = 'IDLE'; this.target = null; this.attackCooldown = 0;
+            this.element = document.createElement('div');
+            this.element.className = 'grid-tile';
+            this.element.innerHTML = `<div class="health-bar-container"><div class="health-bar"></div></div><span class="emoji">${config.emoji}</span>`;
+            gameArea.appendChild(this.element);
+            this.healthBar = this.element.querySelector('.health-bar');
+            this.updatePosition();
+        }
+        updatePosition() { this.element.style.transform = `translate(${this.x * TILE_SIZE}px, ${this.y * TILE_SIZE}px)`; }
+        updateHealthBar() {
+            const percentage = (this.hp / this.maxHp) * 100;
+            this.healthBar.style.width = `${percentage}%`;
+            this.healthBar.classList.toggle('low', percentage < 60 && percentage >= 30);
+            this.healthBar.classList.toggle('critical', percentage < 30);
+        }
+        moveTowards(target) {
+            if (this.attackCooldown > 0) { this.attackCooldown--; return; }
+            if (this.state === 'HUNTING' && areAdjacent(this, target)) return;
+            const dx = target.x - this.x; const dy = target.y - this.y;
+            if (Math.abs(dx) > Math.abs(dy)) { this.x += Math.sign(dx); } 
+            else if (dy !== 0) { this.y += Math.sign(dy); }
+            else if (dx !== 0) { this.x += Math.sign(dx); }
+        }
+        takeDamage(amount, attacker) {
+            this.hp -= amount;
+            if (this.hp <= 0) { this.die(attacker); } 
+            else { this.updateHealthBar(); }
+        }
+        die(killer) { this.remove(); }
+        remove() { if(this.element.parentNode) gameArea.removeChild(this.element); }
+    }
+
+    class Dwarf extends Entity {
+        constructor(id, x, y, type) { super(id, x, y, type); }
+        
+        update() {
+            if (this.state === 'FIGHTING') return;
+            
+            const nearbyGoblin = this.findClosest(gameState.monsters, 3);
+            if(nearbyGoblin) {
+                this.target = nearbyGoblin;
+                this.state = 'HUNTING';
+            } else {
+                if (this.type === 'WARRIOR') {
+                    const monster = this.findClosest(gameState.monsters);
+                    this.target = monster;
+                    this.state = monster ? 'HUNTING' : 'IDLE';
+                } else { // Miner or Mason
+                    if (this.state !== 'RETURNING_TO_FORTRESS') {
+                        const resourceType = this.type === 'MINER' ? 'GOLD' : 'STONE';
+                        const resource = this.findClosest(gameState.resources.filter(r => r.type === resourceType));
+                        this.target = resource;
+                        this.state = resource ? 'MOVING_TO_RESOURCE' : 'IDLE';
+                    }
+                }
+            }
+            this.performStateAction();
+            this.updatePosition();
+        }
+
+        performStateAction() {
+            if (!this.target) {
+                this.state = 'IDLE';
+                return;
+            }
+
+            const isAtTarget = (this.x === this.target.x && this.y === this.target.y);
+            
+            switch (this.state) {
+                case 'MOVING_TO_RESOURCE':
+                    if (isAtTarget) {
+                        this.target.remove();
+                        spawnNewResource(this.target.type);
+                        this.state = 'RETURNING_TO_FORTRESS';
+                        this.target = gameState.fortress;
+                    } else {
+                        this.moveTowards(this.target);
+                    }
+                    break;
+                case 'RETURNING_TO_FORTRESS':
+                    if (isAtTarget) {
+                        const resourceType = this.type === 'MINER' ? 'gold' : 'stone';
+                        gameState[resourceType]++;
+                        logMessage(`A ${this.type.toLowerCase()} returned 1 ${resourceType}.`, `log-${resourceType}`);
+                        this.state = 'IDLE';
+                        this.target = null;
+                    } else {
+                        this.moveTowards(this.target);
+                    }
+                    break;
+                case 'HUNTING':
+                    if (areAdjacent(this, this.target)) {
+                        this.state = 'FIGHTING';
+                    } else {
+                        this.moveTowards(this.target);
+                    }
+                    break;
+            }
+        }
+
+        findClosest(targets, maxRange = Infinity) {
+            let closest = null, minDistance = maxRange;
+            targets.forEach(t => {
+                const distance = Math.hypot(this.x - t.x, this.y - t.y);
+                if (distance < minDistance) { minDistance = distance; closest = t; }
+            });
+            return closest;
+        }
+        die(killer) {
+            logMessage(`A ${this.type.toLowerCase()} was defeated by a ${killer.type.toLowerCase()}!`, 'log-combat-lose');
+            super.die(killer);
+            gameState.dwarfs = gameState.dwarfs.filter(d => d.id !== this.id);
+        }
+    }
+    class Goblin extends Entity {
+        constructor(id, x, y) { super(id, x, y, 'GOBLIN'); }
+        update() {
+            if (this.state === 'FIGHTING') return;
+            if (!this.target || this.target.hp <= 0) {
+                this.target = this.findClosest(gameState.dwarfs);
+                this.state = this.target ? 'HUNTING' : 'IDLE';
+            }
+            if(this.target) {
+                if (areAdjacent(this, this.target)) { this.state = 'FIGHTING'; }
+                else { this.moveTowards(this.target); }
+            }
+            this.updatePosition();
+        }
+        findClosest(targets) {
+            let closest = null, minDistance = Infinity;
+            targets.forEach(t => {
+                const distance = Math.hypot(this.x - t.x, this.y - t.y);
+                if (distance < minDistance) { minDistance = distance; closest = t; }
+            });
+            return closest;
+        }
+        die(killer) {
+            const drop = ENTITY_CONFIG.GOBLIN.goldDrop;
+            logMessage(`A ${killer.type.toLowerCase()} defeated a goblin! +${drop} Gold.`, 'log-combat-win');
+            gameState.gold += drop;
+            super.die(killer);
+            gameState.monsters = gameState.monsters.filter(m => m.id !== this.id);
+        }
+    }
+    class Resource {
+        constructor(id, x, y, type) { this.id = id; this.x = x; this.y = y; this.type = type; this.element = document.createElement('div'); this.element.className = 'grid-tile resource'; this.element.innerHTML = this.type === 'GOLD' ? '💰' : '🪨'; this.updatePosition(); gameArea.appendChild(this.element); }
+        remove() { gameArea.removeChild(this.element); gameState.resources = gameState.resources.filter(r => r.id !== this.id); }
+        updatePosition() { this.element.style.transform = `translate(${this.x * TILE_SIZE}px, ${this.y * TILE_SIZE}px)`;}
+    }
+
+    function resolveCombat() {
+        const allCombatants = [...gameState.dwarfs, ...gameState.monsters];
+        for(const entity of allCombatants) {
+            if (entity.state !== 'FIGHTING') continue;
+            if (!entity.target || entity.target.hp <= 0 || !areAdjacent(entity, entity.target)) {
+                entity.target = null; entity.state = 'IDLE';
+                continue;
+            }
+            if (entity.attackCooldown <= 0) {
+                entity.target.takeDamage(entity.damage, entity);
+                entity.element.classList.add('attacking');
+                setTimeout(() => { if(entity.element) entity.element.classList.remove('attacking'); }, 200);
+                entity.attackCooldown = 5;
+            } else {
+                entity.attackCooldown--;
+            }
+        }
+    }
+
+    function updateUI() {
+        goldDisplay.textContent = gameState.gold; stoneDisplay.textContent = gameState.stone;
+        popDisplay.textContent = gameState.dwarfs.length; popCapDisplay.textContent = gameState.popCap;
+        houseDisplay.textContent = gameState.houses;
+        minerCostDisplay.textContent = gameState.costs.MINER; masonCostDisplay.textContent = gameState.costs.MASON;
+        warriorCostDisplay.textContent = gameState.costs.WARRIOR; houseCostDisplay.textContent = gameState.costs.HOUSE;
+        const hasPopCap = gameState.dwarfs.length < gameState.popCap;
+        spawnMinerBtn.disabled = gameState.gold < gameState.costs.MINER || !hasPopCap;
+        spawnMasonBtn.disabled = gameState.gold < gameState.costs.MASON || !hasPopCap;
+        spawnWarriorBtn.disabled = gameState.gold < gameState.costs.WARRIOR || !hasPopCap;
+        buyHouseBtn.disabled = gameState.stone < gameState.costs.HOUSE;
+    }
+    function handleSpawnDwarf(type) {
+        if (gameState.gold < gameState.costs[type]) { logMessage(`Not enough Gold!`, 'log-warn'); return; }
+        if (gameState.dwarfs.length >= gameState.popCap) { logMessage(`Not enough housing!`, 'log-warn'); return; }
+        gameState.gold -= gameState.costs[type];
+        const spawnPos = findEmptySpotNear(gameState.fortress.x, gameState.fortress.y);
+        if (spawnPos) {
+            gameState.dwarfs.push(new Dwarf(gameState.nextId++, spawnPos.x, spawnPos.y, type));
+            logMessage(`A new ${type.toLowerCase()} has been trained.`, 'log-system');
+            if(type === 'WARRIOR' && !gameState.gameHasStarted) {
+                gameState.gameHasStarted = true;
+                logMessage("The goblins have noticed your settlement...", 'log-warn');
+                setTimeout(() => monsterSpawner(), 10000);
+            }
+        } else { logMessage(`No space to train!`, 'log-warn'); gameState.gold += gameState.costs[type]; }
+        updateUI();
+    }
+    function handleBuyHouse() {
+        if (gameState.stone >= gameState.costs.HOUSE) {
+            gameState.stone -= gameState.costs.HOUSE; gameState.houses++; gameState.popCap += 5;
+            gameState.costs.HOUSE = Math.floor(gameState.costs.HOUSE * 1.6);
+            logMessage(`House built! Pop cap is now ${gameState.popCap}.`, 'log-system');
+        } else { logMessage(`Not enough Stone!`, 'log-warn'); }
+        updateUI();
+    }
+    function monsterSpawner() {
+        if (gameState.monsters.length >= (gameState.dwarfs.filter(d => d.type === 'WARRIOR').length * 2) + 1) return;
+        const edge = Math.floor(Math.random() * 4); let randX, randY;
+        if(edge === 0) { randX = 0; randY = Math.floor(Math.random() * GRID_SIZE); }
+        else if(edge === 1) { randX = GRID_SIZE - 1; randY = Math.floor(Math.random() * GRID_SIZE); }
+        else if(edge === 2) { randX = Math.floor(Math.random() * GRID_SIZE); randY = 0; }
+        else { randX = Math.floor(Math.random() * GRID_SIZE); randY = GRID_SIZE-1; }
+
+        if (!isOccupied(randX, randY)) {
+            gameState.monsters.push(new Goblin(gameState.nextId++, randX, randY));
+            logMessage("A goblin appears on the outskirts!", 'log-combat-lose');
+        }
+    }
+    function toggleGameSpeed() {
+        gameState.isFastForward = !gameState.isFastForward;
+        clearInterval(gameLoopInterval);
+        const newSpeed = gameState.isFastForward ? FAST_TICK_MS : NORMAL_TICK_MS;
+        gameLoopInterval = setInterval(gameLoop, newSpeed);
+        speedBtn.textContent = `Speed: ${gameState.isFastForward ? 'Fast (3x)' : 'Normal (1x)'}`;
+    }
+    function gameLoop() {
+        gameState.dwarfs.forEach(entity => entity.update());
+        gameState.monsters.forEach(entity => entity.update());
+        resolveCombat();
+        updateUI();
+    }
+    function isOccupied(x, y) { const allEntities = [...gameState.dwarfs, ...gameState.resources, ...gameState.monsters]; return (x === gameState.fortress.x && y === gameState.fortress.y) || allEntities.some(e => e.x === x && e.y === y);}
+    function findEmptySpotNear(cx, cy) { for(let r=1; r < GRID_SIZE; r++) { for(let i=0; i<r*8; i++) { let x=cx,y=cy; if(i<r*2){x=cx-r+i;y=cy-r;}else if(i<r*4){x=cx+r;y=cy-r+(i-r*2);}else if(i<r*6){x=cx+r-(i-r*4);y=cy+r;}else{x=cx-r;y=cy+r-(i-r*6);} if(x>=0&&x<GRID_SIZE&&y>=0&&y<GRID_SIZE&&!isOccupied(x,y)){return {x,y};}}} return null;}
+    function spawnNewResource(type) { let pos, attempts=0; do { pos = { x: Math.floor(Math.random() * GRID_SIZE), y: Math.floor(Math.random() * GRID_SIZE) }; attempts++; } while (isOccupied(pos.x, pos.y) && attempts < 100); if (attempts < 100) gameState.resources.push(new Resource(gameState.nextId++, pos.x, pos.y, type));}
+    function logMessage(msg, className='log-system') { const p=document.createElement('p'); p.className=className; p.textContent=`> ${msg}`; logPanel.insertBefore(p, logPanel.firstChild); if(logPanel.children.length>50)logPanel.removeChild(logPanel.lastChild);}
+    
+    function init() {
+        fortressEl = document.createElement('div'); fortressEl.className = 'grid-tile fortress'; fortressEl.innerHTML = '🏰'; gameArea.appendChild(fortressEl);
+        spawnMinerBtn.addEventListener('click', () => handleSpawnDwarf('MINER')); spawnMasonBtn.addEventListener('click', () => handleSpawnDwarf('MASON'));
+        spawnWarriorBtn.addEventListener('click', () => handleSpawnDwarf('WARRIOR')); buyHouseBtn.addEventListener('click', handleBuyHouse);
+        speedBtn.addEventListener('click', toggleGameSpeed);
+        for (let i = 0; i < 4; i++) { spawnNewResource('GOLD'); } for (let i = 0; i < 4; i++) { spawnNewResource('STONE'); }
+        logMessage("The fortress awaits your command.", "log-system");
+        
+        let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(resizeGame, 150); });
+        
+        function resizeGame() {
+            const controlPanelHeight=180, padding=40;
+            const availableWidth=document.getElementById('game-container').clientWidth-padding, availableHeight=window.innerHeight-controlPanelHeight-padding;
+            const newTileSize=Math.floor(Math.min(availableWidth/GRID_SIZE, availableHeight/GRID_SIZE, 40));
+            TILE_SIZE=Math.max(20,newTileSize); document.documentElement.style.setProperty('--tile-size',`${TILE_SIZE}px`);
+            const areaSize=GRID_SIZE*TILE_SIZE; gameArea.style.width=`${areaSize}px`; gameArea.style.height=`${areaSize}px`; gameArea.style.backgroundSize=`${TILE_SIZE}px ${TILE_SIZE}px`;
+            fortressEl.style.transform=`translate(${gameState.fortress.x*TILE_SIZE}px, ${gameState.fortress.y*TILE_SIZE}px)`;
+            [...gameState.dwarfs, ...gameState.resources, ...gameState.monsters].forEach(e => e.updatePosition());
+        }
+        
+        resizeGame(); updateUI();
+        gameLoopInterval = setInterval(gameLoop, NORMAL_TICK_MS);
+        setInterval(() => { if(gameState.gameHasStarted) monsterSpawner(); }, 20000);
+    }
+    init();
+    </script>
+</body>
+</html>
